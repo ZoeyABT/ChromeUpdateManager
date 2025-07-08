@@ -147,6 +147,11 @@ function Write-LogMessage {
             'Success' { Write-Host $logEntry -ForegroundColor Green }
         }
     }
+
+    if($LogPath -eq "")
+    {
+        $LogPath = "$env:TEMP\ChromeUpdate.log"
+    }
     
     # Write to log file with size management
     try {
