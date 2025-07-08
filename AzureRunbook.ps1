@@ -100,16 +100,24 @@ function Get-TargetVms {
     try {
         Write-RunbookOutput "Searching for VMs matching pattern: '$NamePattern'" -Level Info
         
-        $vms = Get-AzVm | Where-Object { ($_.Name.ToLower()).Contains($NamePattern.ToLower()) }
+        $allVms = Get-AzVm
+        Write-RunbookOutput "Retrieved $($allVms.Count) total VMs from Azure" -Level Info
         
-        if ($vms.Count -eq 0) {
+        $vms = $allVms | Where-Object { ($_.Name.ToLower()).Contains($NamePattern.ToLower()) }
+        
+        if (-not $vms -or $vms.Count -eq 0) {
             Write-RunbookOutput "No VMs found matching pattern: '$NamePattern'" -Level Warning
             return @()
         }
         
+        # Ensure we return an array even for single VM
+        if ($vms -is [System.Object] -and $vms -isnot [System.Array]) {
+            $vms = @($vms)
+        }
+        
         Write-RunbookOutput "Found $($vms.Count) VMs matching pattern" -Level Success
         foreach ($vm in $vms) {
-            Write-RunbookOutput "  - $($vm.Name) (Resource Group: $($vm.ResourceGroupName))" -Level Info
+            Write-RunbookOutput "  - $($vm.Name) (Resource Group: $($vm.ResourceGroupName), Type: $($vm.GetType().Name))" -Level Info
         }
         
         return $vms
@@ -123,13 +131,19 @@ function Get-TargetVms {
 function Initialize-RunCommand {
     param(
         [Parameter(Mandatory)]
-        [Microsoft.Azure.Commands.Compute.Models.PSVirtualMachine] $VM,
+        $VM,
         
         [Parameter(Mandatory)]
         [string] $RunCommandName
     )
     
     try {
+        # Validate VM object
+        if (-not $VM -or -not $VM.Name -or -not $VM.ResourceGroupName) {
+            Write-RunbookOutput "Invalid VM object passed to Initialize-RunCommand" -Level Error
+            return $false
+        }
+        
         # Clean up any existing run commands with the same name
         $existingCommands = Get-AzVMRunCommand -ResourceGroupName $VM.ResourceGroupName -VMName $VM.Name -ErrorAction SilentlyContinue
         if ($existingCommands) {
@@ -143,7 +157,7 @@ function Initialize-RunCommand {
         }
         
         # Define the Chrome Update Manager script block
-        $runCommandPayload = {
+$runCommandPayload = {
             try {
                 $script = (Invoke-WebRequest "https://raw.githubusercontent.com/ZoeyABT/ChromeUpdateManager/refs/heads/main/ChromeUpdateManager.ps1" -UseBasicParsing).Content
                 & ([ScriptBlock]::Create($script))
@@ -168,13 +182,22 @@ function Initialize-RunCommand {
 function Get-RunCommandResult {
     param(
         [Parameter(Mandatory)]
-        [Microsoft.Azure.Commands.Compute.Models.PSVirtualMachine] $VM,
+        $VM,
         
         [Parameter(Mandatory)]
         [string] $RunCommandName
     )
     
     try {
+        # Validate VM object
+        if (-not $VM -or -not $VM.Name -or -not $VM.ResourceGroupName) {
+            return @{
+                Status = 'Error'
+                Output = ''
+                Error = 'Invalid VM object'
+            }
+        }
+        
         $runCommand = Get-AzVMRunCommand -ResourceGroupName $VM.ResourceGroupName -VMName $VM.Name -RunCommandName $RunCommandName -Expand InstanceView -ErrorAction SilentlyContinue
         
         if (-not $runCommand) {
@@ -246,12 +269,16 @@ function Wait-ForAllRunCommands {
         # Check each pending VM
         foreach ($result in $Results | Where-Object { $_.Status -eq 'Pending' }) {
             try {
+                Write-RunbookOutput "Checking status for VM: $($result.VmName) in RG: $($result.ResourceGroup)" -Level Info
+                
                 $vm = Get-AzVm -ResourceGroupName $result.ResourceGroup -Name $result.VmName -ErrorAction SilentlyContinue
                 if (-not $vm) {
+                    Write-RunbookOutput "VM $($result.VmName) not found" -Level Warning
                     $result.SetFailed("VM not found")
                     continue
                 }
                 
+                Write-RunbookOutput "Retrieved VM object for $($vm.Name), Type: $($vm.GetType().Name)" -Level Info
                 $commandResult = Get-RunCommandResult -VM $vm -RunCommandName $RunCommandName
                 
                 switch ($commandResult.Status) {
@@ -345,9 +372,9 @@ function Start-ChromeUpdateRunbook {
         }
         catch {
             Write-RunbookOutput "Failed to connect to Azure: $($_.Exception.Message)" -Level Error
-            throw $_
-        }
-        
+    throw $_
+}
+
         # Step 2: Get target VMs
         $vms = Get-TargetVms -NamePattern $VmNamePattern
         
@@ -399,7 +426,7 @@ function Start-ChromeUpdateRunbook {
     }
 }
 
-#endregion
+    #endregion
 
 # Main execution
 try {
