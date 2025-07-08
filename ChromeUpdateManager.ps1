@@ -152,6 +152,11 @@ function Write-LogMessage {
     {
         $LogPath = "$env:TEMP\ChromeUpdate.log"
     }
+
+    if($MaxLogSizeMB -eq 0)
+    {
+        $MaxLogSizeMB = 5
+    }
     
     # Write to log file with size management
     try {
