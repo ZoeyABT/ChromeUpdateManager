@@ -138,14 +138,17 @@ function Write-LogMessage {
     $timeStamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
     $logEntry = "[$timeStamp] [$Level] $Message"
     
-    # Write to console with appropriate color (unless -Quiet is specified)
-    if (-not $Quiet) {
+    # Write to console only if -Verbose is specified (or for critical errors)
+    if (-not $Quiet -and $VerbosePreference -eq 'Continue') {
         switch ($Level) {
             'Info' { Write-Host $logEntry -ForegroundColor Cyan }
-            'Warning' { Write-Warning $logEntry }
-            'Error' { Write-Error $logEntry }
+            'Warning' { Write-Host $logEntry -ForegroundColor Yellow }
+            'Error' { Write-Host $logEntry -ForegroundColor Red }
             'Success' { Write-Host $logEntry -ForegroundColor Green }
         }
+    } elseif (-not $Quiet -and $Level -eq 'Error') {
+        # Always show critical errors to console (even without -Verbose)
+        Write-Host $logEntry -ForegroundColor Red
     }
 
     if($LogPath -eq "")
@@ -177,12 +180,12 @@ function Write-LogMessage {
                     $rotationMessage = "[$timeStamp] [INFO] === LOG ROTATED === Previous log archived to: $backupPath (Size: $([math]::Round($logSizeBytes/1MB, 2)) MB)"
                     Set-Content -Path $LogPath -Value $rotationMessage -ErrorAction Stop
                     
-                    if (-not $Quiet) { Write-Host "Log file rotated. Previous log archived to: $backupPath" -ForegroundColor Yellow }
+                    if (-not $Quiet -and $VerbosePreference -eq 'Continue') { Write-Host "Log file rotated. Previous log archived to: $backupPath" -ForegroundColor Yellow }
                 } catch {
                     # If backup fails, just truncate the current log
                     $truncateMessage = "[$timeStamp] [WARNING] === LOG TRUNCATED === Previous log content removed due to size limit ($MaxLogSizeMB MB exceeded)"
                     Set-Content -Path $LogPath -Value $truncateMessage -ErrorAction Stop
-                    if (-not $Quiet) { Write-Host "Log file truncated due to size limit." -ForegroundColor Yellow }
+                    if (-not $Quiet -and $VerbosePreference -eq 'Continue') { Write-Host "Log file truncated due to size limit." -ForegroundColor Yellow }
                 }
             }
         }
@@ -191,7 +194,9 @@ function Write-LogMessage {
         Add-Content -Path $LogPath -Value $logEntry -ErrorAction Stop
         
     } catch {
-        Write-Warning "Failed to write to log file: $_"
+        if (-not $Quiet -and $VerbosePreference -eq 'Continue') {
+            Write-Warning "Failed to write to log file: $_"
+        }
     }
 }
 
@@ -1071,7 +1076,7 @@ function Start-ChromeUpdateProcess {
 #endregion
 
 # Main execution
-if (-not $Quiet) {
+if (-not $Quiet -and $VerbosePreference -eq 'Continue') {
     Write-Host "Chrome Update Manager Starting..." -ForegroundColor Green
     Write-Host "Log file: $LogPath" -ForegroundColor Cyan
 }
@@ -1081,13 +1086,13 @@ if ($PSCmdlet.ShouldProcess("Chrome Browser", "Complete Update Process")) {
     
     # Exit with appropriate code
     if ($updateSession.OverallSuccess) {
-        if (-not $Quiet) { Write-Host "Chrome update completed successfully!" -ForegroundColor Green }
+        if (-not $Quiet -and $VerbosePreference -eq 'Continue') { Write-Host "Chrome update completed successfully!" -ForegroundColor Green }
         #exit 0
     } else {
-        if (-not $Quiet) { Write-Host "Chrome update failed. Check log for details." -ForegroundColor Red }
+        if (-not $Quiet -and $VerbosePreference -eq 'Continue') { Write-Host "Chrome update failed. Check log for details." -ForegroundColor Red }
         #exit 1
     }
 } else {
-    if (-not $Quiet) { Write-Host "WhatIf mode - showing what would be done:" -ForegroundColor Yellow }
+    if (-not $Quiet -and $VerbosePreference -eq 'Continue') { Write-Host "WhatIf mode - showing what would be done:" -ForegroundColor Yellow }
     $updateSession = Start-ChromeUpdateProcess
 } 
