@@ -258,16 +258,20 @@ function Wait-ForAllRunCommands {
                     'Succeeded' {
                         # Parse the Chrome Update Manager output
                         $chromeOutput = $commandResult.Output
-                        if ($chromeOutput -match "^\s*$($env:COMPUTERNAME|$result.VmName)\s*\|.*") {
-                            # Extract the Chrome result line
-                            $chromeResultLine = ($chromeOutput -split "`n" | Where-Object { $_ -match "^\s*.*\s*\|.*\|.*\|.*\|.*" })[0]
-                            if ($chromeResultLine) {
-                                $result.SetCompleted($chromeResultLine.Trim())
-                            } else {
-                                $result.SetCompleted("Completed - No Chrome result pattern found")
-                            }
+                        
+                        # Look for Chrome result line pattern (computer name | status | version info | change | duration)
+                        $chromeResultLine = ($chromeOutput -split "`n" | Where-Object { $_ -match "^\s*.*\s*\|\s*(SUCCESS|FAILED)\s*\|.*\|.*\|.*min\s*$" })[0]
+                        
+                        if ($chromeResultLine) {
+                            $result.SetCompleted($chromeResultLine.Trim())
                         } else {
-                            $result.SetCompleted("Completed - See output: $($chromeOutput.Substring(0, [math]::Min(100, $chromeOutput.Length)))")
+                            # Fall back to looking for any line that looks like Chrome output
+                            $fallbackLine = ($chromeOutput -split "`n" | Where-Object { $_ -match "^\s*\w+.*\|.*\|.*\|.*\|.*" })[0]
+                            if ($fallbackLine) {
+                                $result.SetCompleted($fallbackLine.Trim())
+                            } else {
+                                $result.SetCompleted("Completed - Output: $($chromeOutput.Substring(0, [math]::Min(100, $chromeOutput.Length)))")
+                            }
                         }
                         
                         # Clean up the run command
